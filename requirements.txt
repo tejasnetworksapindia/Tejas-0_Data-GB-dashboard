@@ -4,3 +4,4 @@ openpyxl
 plotly
 supabase
 st-gsheets-connection
+gdown
