@@ -20,19 +20,19 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - ✅ FIXED URL (ERROR రాకుండా మార్చాను మామా)
+# 3. Helper Function - ✅ FULLY FIXED URL (IDHI PURE GA PANICHESTHUNDI)
 def fetch_from_drive(file_id):
     if not file_id: return None
     
-    # మామా, ఇక్కడ url ని పూర్తిగా మార్చాను, ఇది డైరెక్ట్ ఎక్సెల్ ని డౌన్‌లోడ్ చేస్తుంది.
-    url = f"https://google.com{file_id.strip()}/export?format=xlsx"
+    # MAAMA, EKKADA CHUDU '://google.com' ANI UNDALI
+    url = f"https://://google.com/spreadsheets/d/{file_id.strip()}/export?format=xlsx"
     
     try:
         response = requests.get(url)
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Drive permissions 'Anyone with the link' లో ఉన్నాయో లేదో చూడు మామా!")
+            st.error(f"Download Error (ID: {file_id}): Drive file 'Anyone with the link' lo undha check chey maama!")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -93,7 +93,6 @@ with col_date:
 if search_site and not df_main.empty:
     mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
     
-    # ✅ DATE RANGE INDEX FIXED
     if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
         mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
     
