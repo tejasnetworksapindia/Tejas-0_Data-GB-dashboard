@@ -7,34 +7,25 @@ import io
 # 1. Webpage Configuration
 st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
 
-# Custom Styling
-st.markdown("""
-    <style>
-    .report-title { font-size:28px !important; font-weight: bold; color: #1E3A8A; }
-    </style>
-    """, unsafe_allow_html=True)
-
-st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Master Dashboard</p>', unsafe_allow_html=True)
+st.markdown('<p style="font-size:28px;font-weight:bold;color:#1E3A8A;">📡 Tejas RAN Performance & Historical Master Dashboard</p>', unsafe_allow_html=True)
 
 # 2. Session State Storage
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - ✅ URL FIXED (://google.com కచ్చితంగా ఉంటుంది)
+# 3. Helper Function - ✅ URL FIXED (No more double slashes)
 def fetch_from_drive(file_id):
     if not file_id: return None
     
-    # మామా, ఇక్కడ URL ని విడదీసి రాశాను, ఎడిటర్ పొరపాటు చేసే ఛాన్స్ లేదు!
-    base_url = "https://://google.com"
-    api_path = f"/spreadsheets/d/{file_id.strip()}/export?format=xlsx"
-    final_url = base_url + api_path
+    # మామా, ఇక్కడ URL ని చాలా సింపుల్ గా మార్చాను, ఇక తప్పు రాదు
+    url = f"https://google.com{file_id.strip()}/export?format=xlsx"
     
     try:
-        response = requests.get(final_url)
+        response = requests.get(url)
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Drive file access చెక్ చెయ్ మామా!")
+            st.error(f"Download Error (ID: {file_id}): Drive permissions 'Anyone with the link' లో ఉన్నాయో లేదో చూడు మామా!")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -149,3 +140,4 @@ if not df_main.empty:
                 st.success(f"✅ All cells in {selected_oa} are above 2GB.")
 else:
     st.info("👈 Please click 'Sync Fixed 4-Day KPI' to enable Tracker.")
+
