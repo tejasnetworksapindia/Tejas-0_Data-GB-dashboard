@@ -20,11 +20,12 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - 🟢 URL SLASH ERROR FIXED
+# 3. Helper Function - 🟢 GOOGLE DRIVE DOWNLOAD FIXED
 def fetch_from_drive(file_id):
     if not file_id: return None
     
-    # Correct format for Google Drive Direct Downloads - MAAMA EKKADA FIX CHESA
+    # Correct format for Google Drive Direct Downloads
+    # Maama, ee link format unte ne error raadhu!
     url = f"https://google.com{file_id.strip()}"
     
     try:
@@ -32,7 +33,7 @@ def fetch_from_drive(file_id):
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Drive file access 'Anyone with the link' lo undha check chey maama!")
+            st.error(f"Download Error (ID: {file_id}): Access check chey maama!")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -41,9 +42,10 @@ def fetch_from_drive(file_id):
 with st.sidebar:
     st.header("📂 Data Management")
     
+    # Maama, nuvvu adigina order lo IDs ikkada update chesa!
     FIXED_KPI_IDS = [
-        "1o1a7QX47BGUlwZ1Vm6DrDhM1Uh62wVPB",
         "1wvh8AAWhuj_ZDkiHKhIKU0YiFtf8CoJS",
+        "1o1a7QX47BGUlwZ1Vm6DrDhM1Uh62wVPB",
         "10KzzznYIUHitWMSEnKG2KoQnySkoPnQG",
         "136xNGW0_EghLz8sGw8AGJPVnp5y9rR0L"
     ]
@@ -58,6 +60,7 @@ with st.sidebar:
                     all_dfs.append(df)
             if all_dfs:
                 combined = pd.concat(all_dfs, ignore_index=True)
+                # Ensure Date is cleaned
                 combined['Date'] = pd.to_datetime(combined['Date']).dt.date
                 st.session_state['master_kpi'] = combined.drop_duplicates()
                 st.success("4-Day Data Loaded! 🚀")
