@@ -5,13 +5,12 @@ import requests
 import io
 
 # 1. Webpage Configuration
-st.set_page_config(layout="wide", page_title="Tejas Smart RAN Master Dashboard")
+st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
 
 # Custom Styling
 st.markdown("""
     <style>
     .report-title { font-size:28px !important; font-weight: bold; color: #1E3A8A; }
-    .stDataFrame { border: 1px solid #e6e9ef; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -21,19 +20,17 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Functions - 🟢 FIXED URL LOGIC
+# 3. Helper Function - 🟢 URL SLASH ERROR FIXED
 def fetch_from_drive(file_id):
     if not file_id: return None
-    # 🟢 FIXED: 'uc?export=download&id=' tharvatha '/' lekapovadam valla vachina error fix chesa
+    # 'uc?export=download&id=' tharvatha '/' kachitanga raavali, adi fix chesa
     url = f"https://google.com{file_id.strip()}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            content = io.BytesIO(response.content)
-            # KPI files are Excel (.xlsx) as per your images
-            return pd.read_excel(content)
+            return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Status {response.status_code}. Check Drive Permission!")
+            st.error(f"Download Error (ID: {file_id}): Permission check chey maama!")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -42,7 +39,6 @@ def fetch_from_drive(file_id):
 with st.sidebar:
     st.header("📂 Data Management")
     
-    # 🟢 FIXED KPI IDs
     FIXED_KPI_IDS = [
         "1o1a7QX47BGUlwZ1Vm6DrDhM1Uh62wVPB",
         "1wvh8AAWhuj_ZDkiHKhIKU0YiFtf8CoJS",
@@ -65,22 +61,20 @@ with st.sidebar:
                 st.success("4-Day Data Loaded! 🚀")
 
     st.divider()
-    
-    # Recent Folder Alarms Section
     st.subheader("🚨 Recent Folder Alarms")
-    st.info("Paste IDs from Latest Folder (e.g., AP-05 MAY)")
     active_id = st.text_input("Active Alarm ID:")
     fm_id = st.text_input("FM Report ID:")
     vswr_id = st.text_input("VSWR Report ID:")
 
-    if st.button("🗑️ Clear All Data"):
+    if st.button("🗑️ Clear Dashboard"):
         st.session_state['master_kpi'] = pd.DataFrame()
         st.rerun()
 
 # --- MAIN PAGE: SEARCH & FILTERS ---
 df_main = st.session_state['master_kpi']
 
-col_search, col_date = st.columns()
+# 🟢 TYPE ERROR FIXED: st.columns(2) ani kachitanga ivvali
+col_search, col_date = st.columns(2)
 
 with col_search:
     search_site = st.text_input("🔍 Search Site ID (e.g., AT2001)", "").strip().upper()
@@ -104,7 +98,7 @@ if search_site and not df_main.empty:
     if not site_data.empty:
         st.subheader(f"📊 Traffic Analysis for {search_site}")
         fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', 
-                     color='4G Cell Name', barmode='group', height=500, text_auto='.2f')
+                     color='4G Cell Name', barmode='group', height=450, text_auto='.2f')
         st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
@@ -116,7 +110,7 @@ if search_site and not df_main.empty:
             st.dataframe(site_data[available_cols].sort_values(by='Date', ascending=False), use_container_width=True)
             
         with col_alarm:
-            st.subheader(f"⚠️ Recent Alarms (Today's Folder)")
+            st.subheader(f"⚠️ Recent Alarms")
             alarm_results = []
             for lbl, f_id in [("Active", active_id), ("FM", fm_id), ("VSWR", vswr_id)]:
                 if f_id:
@@ -129,11 +123,11 @@ if search_site and not df_main.empty:
             if alarm_results:
                 st.dataframe(pd.concat(alarm_results, ignore_index=True), use_container_width=True)
             else:
-                st.success("No active alarms found for this site! ✅")
+                st.success("No active alarms found! ✅")
 
-# --- BOTTOM SECTION: LOW TRAFFIC TRACKER ---
+# --- BOTTOM SECTION: OA TRACKER ---
 st.divider()
-st.markdown("### 🔍 Low Traffic Cell Tracker (OA Wise Analysis)")
+st.markdown("### 🔍 Low Traffic Cell Tracker (OA Wise)")
 if not df_main.empty:
     if 'OA' in df_main.columns:
         oa_list = sorted(df_main['OA'].dropna().unique())
@@ -142,11 +136,11 @@ if not df_main.empty:
         df_latest = df_main[df_main['Date'] == latest_date]
         if selected_oa != "Select Area":
             df_filtered_oa = df_latest[df_latest['OA'] == selected_oa]
-            low_traffic_cells = df_filtered_oa[df_filtered_oa['Data Volume - Total (GB)'] < 2.0]
-            if not low_traffic_cells.empty:
-                st.warning(f"⚠️ {len(low_traffic_cells)} cells below 2GB on {latest_date} in {selected_oa}")
-                st.dataframe(low_traffic_cells[['Site Id', 'LOCATION', '4G Cell Name', 'Data Volume - Total (GB)']], use_container_width=True)
+            low_cells = df_filtered_oa[df_filtered_oa['Data Volume - Total (GB)'] < 2.0]
+            if not low_cells.empty:
+                st.warning(f"⚠️ {len(low_cells)} cells below 2GB on {latest_date}")
+                st.dataframe(low_cells[['Site Id', 'LOCATION', '4G Cell Name', 'Data Volume - Total (GB)']], use_container_width=True)
             else:
                 st.success(f"✅ All cells in {selected_oa} are above 2GB.")
 else:
-    st.info("👈 Please click 'Sync Fixed 4-Day KPI' to enable OA Tracker.")
+    st.info("👈 Please click 'Sync Fixed 4-Day KPI' to enable Tracker.")
