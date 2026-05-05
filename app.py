@@ -20,17 +20,21 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - 🟢 URL SLASH ERROR FIXED
+# 3. Helper Function - 🟢 GOOGLE DRIVE URL FIXED
 def fetch_from_drive(file_id):
     if not file_id: return None
-    # 'uc?export=download&id=' tharvatha '/' kachitanga raavali, adi fix chesa
-    url = f"https://google.com{file_id.strip()}"
+    
+    # Correct format for Google Drive Direct Downloads
+    # Maama, '://google.com' format ee kachitanga vaadali!
+    url = f"https://://google.com?export=download&id={file_id.strip()}"
+    
     try:
         response = requests.get(url)
         if response.status_code == 200:
+            # Using openpyxl engine for better excel support
             return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Permission check chey maama!")
+            st.error(f"Download Error (ID: {file_id}): Link permission 'Anyone with the link' lo undha check chey maama!")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -56,6 +60,7 @@ with st.sidebar:
                     all_dfs.append(df)
             if all_dfs:
                 combined = pd.concat(all_dfs, ignore_index=True)
+                # Date conversion fix
                 combined['Date'] = pd.to_datetime(combined['Date']).dt.date
                 st.session_state['master_kpi'] = combined.drop_duplicates()
                 st.success("4-Day Data Loaded! 🚀")
@@ -73,7 +78,6 @@ with st.sidebar:
 # --- MAIN PAGE: SEARCH & FILTERS ---
 df_main = st.session_state['master_kpi']
 
-# 🟢 TYPE ERROR FIXED: st.columns(2) ani kachitanga ivvali
 col_search, col_date = st.columns(2)
 
 with col_search:
@@ -81,15 +85,19 @@ with col_search:
 
 with col_date:
     if not df_main.empty:
-        min_d = min(df_main['Date'])
-        max_d = max(df_main['Date'])
+        min_d = df_main['Date'].min()
+        max_d = df_main['Date'].max()
+        # Range handling logic
         date_range = st.date_input("📅 Date Range Filter", [min_d, max_d])
     else:
         st.info("Sync data to enable Date Filter")
+        date_range = []
 
 # --- ANALYSIS SECTION ---
 if search_site and not df_main.empty:
     mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
+    
+    # Check if range is fully selected
     if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
         mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
     
