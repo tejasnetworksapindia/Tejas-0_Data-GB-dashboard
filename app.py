@@ -134,3 +134,28 @@ else:
         st.info("👈 Database is empty. Please upload files and click 'Save & Refresh Database'.")
     else:
         st.warning("🔍 Please enter a Site ID to see the flow.")
+import streamlit as st
+import pandas as pd
+import gdown  # Drive files download cheyataniki
+
+# --- GOOGLE DRIVE FILE IDs ---
+# Nee file link lo d/ tarvatha vache ID ni ikada pettali maama
+file_ids = {
+    '01_05': 'YOUR_FILE_ID_1',
+    '02_05': 'YOUR_FILE_ID_2',
+    '03_05': 'YOUR_FILE_ID_3',
+    '04_05': 'YOUR_FILE_ID_4'
+}
+
+def fetch_data_from_drive():
+    all_days_data = []
+    for date, f_id in file_ids.items():
+        url = f'https://google.com{f_id}'
+        df = pd.read_csv(url) if ".csv" in url else pd.read_excel(url)
+        all_days_data.append(df)
+    return pd.concat(all_days_data, ignore_index=True)
+
+# Dashboard lo button petti link cheddamu
+if st.sidebar.button("🔄 Sync with Google Drive"):
+    st.session_state['master_kpi'] = fetch_data_from_drive()
+    st.success("4 Days Data Synced from Drive! 🚀")
