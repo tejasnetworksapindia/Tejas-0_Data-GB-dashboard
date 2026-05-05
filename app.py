@@ -20,11 +20,11 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - ✅ GOOGLE DRIVE DOWNLOAD FIXED
+# 3. Helper Function - ✅ FIXED URL & DRIVE ACCESS
 def fetch_from_drive(file_id):
     if not file_id: return None
     
-    # MAAMA, IDHI CORRECT FORMAT: Google Drive spreadsheets ni direct download cheyadaniki
+    # Maama, ide correct URL format. Deenini marchaku.
     url = f"https://google.com{file_id.strip()}/export?format=xlsx"
     
     try:
@@ -32,7 +32,7 @@ def fetch_from_drive(file_id):
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Status {response.status_code}. Drive file access 'Anyone with the link' lo undha check chey maama!")
+            st.error(f"Download Error (ID: {file_id}): Access check chey maama! Status: {response.status_code}")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -41,6 +41,7 @@ def fetch_from_drive(file_id):
 with st.sidebar:
     st.header("📂 Data Management")
     
+    # Maama, nuvvu adigina correct sequence lo IDs ikkada unnayi
     FIXED_KPI_IDS = [
         "1wvh8AAWhuj_ZDkiHKhIKU0YiFtf8CoJS",
         "1o1a7QX47BGUlwZ1Vm6DrDhM1Uh62wVPB",
@@ -84,6 +85,7 @@ with col_date:
     if not df_main.empty:
         min_d = df_main['Date'].min()
         max_d = df_main['Date'].max()
+        # Date Range input fix
         date_range = st.date_input("📅 Date Range Filter", [min_d, max_d])
     else:
         st.info("Sync data to enable Date Filter")
@@ -93,7 +95,7 @@ with col_date:
 if search_site and not df_main.empty:
     mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
     
-    # ✅ DATE RANGE FIXED HERE MAAMA
+    # ✅ DATE RANGE INDEX FIXED
     if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
         mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
     
