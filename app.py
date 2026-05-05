@@ -1,109 +1,116 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import requests
+import io
 
-# Webpage setup
-st.set_page_config(layout="wide", page_title="Tejas Traffic Analyzer")
+# 1. Webpage Configuration
+st.set_page_config(layout="wide", page_title="Tejas Smart RAN Master Dashboard")
 
 # Custom Styling
 st.markdown("""
     <style>
     .report-title { font-size:28px !important; font-weight: bold; color: #1E3A8A; }
+    .stDataFrame { border: 1px solid #e6e9ef; }
     </style>
     """, unsafe_allow_html=True)
 
-st.markdown('<p class="report-title">📡 RAN Network Performance Dashboard</p>', unsafe_allow_html=True)
+st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Master Dashboard</p>', unsafe_allow_html=True)
 
-# --- NEW STORAGE LOGIC ---
+# 2. Session State Storage (Monthly Data Memory)
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# Helper function to read multiple files (CSV or Excel)
-def load_and_combine_data(uploaded_files):
-    all_data = []
-    if uploaded_files:
-        for file in uploaded_files:
+# 3. Helper Functions
+def fetch_from_drive(file_id):
+    if not file_id: return None
+    url = f'https://google.com{file_id}'
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            content = io.BytesIO(response.content)
             try:
-                if file.name.endswith('.csv'):
-                    df = pd.read_csv(file)
-                else:
-                    df = pd.read_excel(file)
-                all_data.append(df)
-            except Exception as e:
-                st.error(f"Error loading {file.name}: {e}")
-        if all_data:
-            return pd.concat(all_data, ignore_index=True)
+                return pd.read_csv(content)
+            except:
+                return pd.read_excel(content)
+    except Exception as e:
+        st.error(f"Drive Fetch Error ({file_id}): {e}")
     return None
 
-# Helper function for single file reading
-def load_single_file(uploaded_file):
-    if uploaded_file is not None:
-        try:
-            return pd.read_csv(uploaded_file) if uploaded_file.name.endswith('.csv') else pd.read_excel(uploaded_file)
-        except Exception as e:
-            st.error(f"Error loading {uploaded_file.name}: {e}")
-    return None
-
-# --- SIDEBAR: Upload Section ---
+# --- SIDEBAR: DATA MANAGEMENT ---
 with st.sidebar:
     st.header("📂 Data Management")
-    file_kpi_list = st.file_uploader("1. KPI Reports (Upload New Days)", type=['xlsx', 'csv'], accept_multiple_files=True)
     
-    # 🟢 SAVE BUTTON: Database loki save cheyataniki
-    if st.button("💾 Save & Refresh Database"):
-        if file_kpi_list:
-            new_data = load_and_combine_data(file_kpi_list)
-            # Patha data tho combine chesthunnam
-            combined = pd.concat([st.session_state['master_kpi'], new_data], ignore_index=True)
-            
-            # Last 4 Days logic: Dates batti filter chestham
-            if not combined.empty and 'Date' in combined.columns:
-                combined['Date'] = combined['Date'].astype(str)
-                unique_dates = sorted(combined['Date'].unique(), reverse=True)[:4]
-                combined = combined[combined['Date'].isin(unique_dates)]
-            
-            st.session_state['master_kpi'] = combined.drop_duplicates()
-            st.success("Data Saved! Kept last 4 days trends.")
+    # KPI Monthly Sync Section
+    st.subheader("📅 Monthly KPI Sync")
+    kpi_history_ids = st.text_area("Paste Monthly KPI File IDs (One per line):", height=150)
+    
+    if st.button("🔄 Sync Historical KPI"):
+        ids = kpi_history_ids.split('\n')
+        all_dfs = []
+        with st.spinner("Fetching Monthly Records..."):
+            for f_id in ids:
+                if f_id.strip():
+                    df = fetch_from_drive(f_id.strip())
+                    if df is not None:
+                        all_dfs.append(df)
+            if all_dfs:
+                combined = pd.concat(all_dfs, ignore_index=True)
+                # Date format handle
+                combined['Date'] = pd.to_datetime(combined['Date']).dt.date
+                st.session_state['master_kpi'] = combined.drop_duplicates()
+                st.success("Monthly Data Loaded! 🚀")
 
-    if st.button("🗑️ Clear All Storage"):
+    st.divider()
+    
+    # Recent Folder Alarms Section (Based on latest folder ID)
+    st.subheader("🚨 Recent Folder Alarms")
+    st.info("Paste IDs from Latest Folder (e.g., AP-05 MAY)")
+    active_id = st.text_input("Active Alarm ID:")
+    fm_id = st.text_input("FM Report ID:")
+    vswr_id = st.text_input("VSWR Report ID:")
+
+    if st.button("🗑️ Clear Dashboard"):
         st.session_state['master_kpi'] = pd.DataFrame()
         st.rerun()
 
-    st.divider()
-    file_alarm = st.file_uploader("2. Active Alarm Report", type=['xlsx', 'csv'])
-    file_fm = st.file_uploader("3. FM Report", type=['xlsx', 'csv'])
-    file_vswr = st.file_uploader("4. VSWR Alarm Report", type=['xlsx', 'csv'])
+# --- MAIN PAGE: SEARCH & FILTERS ---
+df_main = st.session_state['master_kpi']
 
-# --- SEARCH BAR ---
-search_site = st.text_input("🔍 Search Site ID (e.g., AT2001)", "").strip()
+col_s, col_d = st.columns([2, 1])
 
-# Check stored data first
-df_kpi = st.session_state['master_kpi']
+with col_s:
+    search_site = st.text_input("🔍 Search Site (e.g., AT2001)", "").strip().upper()
 
-if search_site and not df_kpi.empty:
-    # Smart Search logic
-    df_kpi['Site Id'] = df_kpi['Site Id'].astype(str)
-    site_data = df_kpi[df_kpi['Site Id'].str.contains(search_site, case=False, na=False)]
+with col_d:
+    if not df_main.empty:
+        min_d = min(df_main['Date'])
+        max_d = max(df_main['Date'])
+        # Multi-day filter (From - To)
+        date_range = st.date_input("📅 Select Date Range", [min_d, max_d])
+    else:
+        st.info("Sync data to enable Date Filter")
+
+# --- ANALYSIS SECTION ---
+if search_site and not df_main.empty:
+    # 🟢 Smart Filtering Logic
+    mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
+    if isinstance(date_range, list) or isinstance(date_range, tuple):
+        if len(date_range) == 2:
+            mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
+    
+    site_data = df_main[mask].sort_values(by='Date')
 
     if not site_data.empty:
-        # --- 1. TRAFFIC SECTION (50%) ---
-        st.subheader(f"📊 4-Day Traffic Trend: {search_site}")
-        
-        site_data = site_data.sort_values(by='Date')
-        fig_traffic = px.bar(
-            site_data, 
-            x='4G Cell Name', 
-            y='Data Volume - Total (GB)', 
-            color='Date',
-            barmode='group',
-            height=450,
-            text_auto='.2f'
-        )
-        st.plotly_chart(fig_traffic, use_container_width=True)
+        # --- 1. TRAFFIC GRAPH (50% Area) ---
+        st.subheader(f"📊 Traffic Analysis for {search_site}")
+        fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', 
+                     color='4G Cell Name', barmode='group', height=500, text_auto='.2f')
+        st.plotly_chart(fig, use_container_width=True)
 
         st.divider()
 
-        # --- 2. BOTTOM SECTION (KPI & ALARMS) ---
+        # --- 2. BOTTOM SECTION: KPI (25%) & ALARMS (25%) ---
         col_kpi, col_alarm = st.columns(2)
         
         with col_kpi:
@@ -111,51 +118,57 @@ if search_site and not df_kpi.empty:
             kpi_cols = ['Date', '4G Cell Name', 'CSSR', 'RRC Connection Success Rate(All) (%)', 'ERAB Drop Rate - PS (%)']
             available_cols = [c for c in kpi_cols if c in site_data.columns]
             st.dataframe(site_data[available_cols].sort_values(by='Date', ascending=False), use_container_width=True)
-
-        with col_alarm:
-            st.subheader("⚠️ HW Alarms & Faults (Combined)")
-            combined_alarms = []
-            for label, f in [("Active", file_alarm), ("FM", file_fm), ("VSWR", file_vswr)]:
-                df = load_single_file(f)
-                if df is not None:
-                    site_al = df[df.astype(str).apply(lambda x: x.str.contains(search_site, case=False, na=False)).any(axis=1)].copy()
-                    if not site_al.empty:
-                        site_al['Source'] = label
-                        combined_alarms.append(site_al)
             
-            if combined_alarms:
-                st.dataframe(pd.concat(combined_alarms, ignore_index=True), use_container_width=True)
+        with col_alarm:
+            st.subheader(f"⚠️ Recent Alarms (Latest Folder)")
+            alarm_results = []
+            for lbl, f_id in [("Active", active_id), ("FM", fm_id), ("VSWR", vswr_id)]:
+                if f_id:
+                    df_al = fetch_from_drive(f_id)
+                    if df_al is not None:
+                        # Search within alarm file
+                        res = df_al[df_al.astype(str).apply(lambda x: x.str.contains(search_site, case=False, na=False)).any(axis=1)].copy()
+                        if not res.empty:
+                            res['Source'] = lbl
+                            alarm_results.append(res)
+            
+            if alarm_results:
+                st.dataframe(pd.concat(alarm_results, ignore_index=True), use_container_width=True)
             else:
-                st.success(f"No active alarms found for {search_site}! ✅")
+                st.success("No active alarms found in the Recent Folder! ✅")
     else:
-        st.error(f"Site ID {search_site} not found in database!")
+        st.error(f"No data found for '{search_site}' in the selected date range.")
+
+# --- 3. BOTTOM SECTION: LOW TRAFFIC TRACKER (<2GB) ---
+st.divider()
+st.markdown("### 🔍 Low Traffic Cell Tracker (OA Wise)")
+
+if not df_main.empty:
+    if 'OA' in df_main.columns:
+        oa_list = sorted(df_main['OA'].dropna().unique())
+        selected_oa = st.selectbox("🎯 Select Operational Area (OA):", ["All Areas"] + oa_list)
+        
+        # Current status (Latest Date) data
+        latest_date = df_main['Date'].max()
+        df_latest = df_main[df_main['Date'] == latest_date]
+        
+        # Filtering OA
+        if selected_oa != "All Areas":
+            df_filtered_oa = df_latest[df_latest['OA'] == selected_oa]
+        else:
+            df_filtered_oa = df_latest
+            
+        # Below 2GB Filter
+        low_traffic_cells = df_filtered_oa[df_filtered_oa['Data Volume - Total (GB)'] < 2.0]
+        
+        if not low_traffic_cells.empty:
+            st.warning(f"⚠️ Found {len(low_traffic_cells)} cells with traffic < 2GB on {latest_date}")
+            cols_to_show = ['Site Id', 'LOCATION', 'Cell Id', '4G Cell Name', 'Data Volume - Total (GB)']
+            valid_cols = [c for c in cols_to_show if c in low_traffic_cells.columns]
+            st.dataframe(low_traffic_cells[valid_cols].sort_values(by='Data Volume - Total (GB)'), use_container_width=True)
+        else:
+            st.success(f"✅ Great! All cells in {selected_oa} are above 2GB.")
+    else:
+        st.error("Column 'OA' not found in data for Low Traffic Tracker.")
 else:
-    if search_site:
-        st.info("👈 Database is empty. Please upload files and click 'Save & Refresh Database'.")
-    else:
-        st.warning("🔍 Please enter a Site ID to see the flow.")
-import streamlit as st
-import pandas as pd
-import gdown  # Drive files download cheyataniki
-
-# --- GOOGLE DRIVE FILE IDs ---
-# Nee file link lo d/ tarvatha vache ID ni ikada pettali maama
-file_ids = {
-    '01_05': 'YOUR_FILE_ID_1',
-    '02_05': 'YOUR_FILE_ID_2',
-    '03_05': 'YOUR_FILE_ID_3',
-    '04_05': 'YOUR_FILE_ID_4'
-}
-
-def fetch_data_from_drive():
-    all_days_data = []
-    for date, f_id in file_ids.items():
-        url = f'https://google.com{f_id}'
-        df = pd.read_csv(url) if ".csv" in url else pd.read_excel(url)
-        all_days_data.append(df)
-    return pd.concat(all_days_data, ignore_index=True)
-
-# Dashboard lo button petti link cheddamu
-if st.sidebar.button("🔄 Sync with Google Drive"):
-    st.session_state['master_kpi'] = fetch_data_from_drive()
-    st.success("4 Days Data Synced from Drive! 🚀")
+    st.info("👈 Sync Historical KPI data to enable the Low Traffic Tracker section.")
