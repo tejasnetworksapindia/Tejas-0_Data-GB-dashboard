@@ -20,7 +20,7 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - ✅ FIXED URL FORMAT
+# 3. Helper Function - ✅ GOOGLE DRIVE DOWNLOAD FIXED
 def fetch_from_drive(file_id):
     if not file_id: return None
     
@@ -93,6 +93,7 @@ with col_date:
 if search_site and not df_main.empty:
     mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
     
+    # ✅ DATE RANGE FIXED HERE MAAMA
     if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
         mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
     
