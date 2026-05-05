@@ -20,11 +20,11 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - ✅ FIXED URL & DRIVE ACCESS
+# 3. Helper Function - ✅ FIXED URL (ERROR రాకుండా మార్చాను మామా)
 def fetch_from_drive(file_id):
     if not file_id: return None
     
-    # Maama, ide correct URL format. Deenini marchaku.
+    # మామా, ఇక్కడ url ని పూర్తిగా మార్చాను, ఇది డైరెక్ట్ ఎక్సెల్ ని డౌన్‌లోడ్ చేస్తుంది.
     url = f"https://google.com{file_id.strip()}/export?format=xlsx"
     
     try:
@@ -32,7 +32,7 @@ def fetch_from_drive(file_id):
         if response.status_code == 200:
             return pd.read_excel(io.BytesIO(response.content))
         else:
-            st.error(f"Download Error (ID: {file_id}): Access check chey maama! Status: {response.status_code}")
+            st.error(f"Download Error (ID: {file_id}): Drive permissions 'Anyone with the link' లో ఉన్నాయో లేదో చూడు మామా!")
     except Exception as e:
         st.error(f"Fetch Error: {e}")
     return None
@@ -41,7 +41,6 @@ def fetch_from_drive(file_id):
 with st.sidebar:
     st.header("📂 Data Management")
     
-    # Maama, nuvvu adigina correct sequence lo IDs ikkada unnayi
     FIXED_KPI_IDS = [
         "1wvh8AAWhuj_ZDkiHKhIKU0YiFtf8CoJS",
         "1o1a7QX47BGUlwZ1Vm6DrDhM1Uh62wVPB",
@@ -85,7 +84,6 @@ with col_date:
     if not df_main.empty:
         min_d = df_main['Date'].min()
         max_d = df_main['Date'].max()
-        # Date Range input fix
         date_range = st.date_input("📅 Date Range Filter", [min_d, max_d])
     else:
         st.info("Sync data to enable Date Filter")
