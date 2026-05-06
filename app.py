@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import requests
-import io
+import os
+import glob
 
 # 1. Webpage Configuration
 st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
@@ -20,58 +20,45 @@ st.markdown('<p class="report-title">📡 Tejas RAN Performance & Historical Mas
 if 'master_kpi' not in st.session_state:
     st.session_state['master_kpi'] = pd.DataFrame()
 
-# 3. Helper Function - ✅ CSV FILES & URL FIXED
-def fetch_from_drive(file_id):
-    if not file_id: return None
+# 3. Helper Function - GitHub ఫోల్డర్ నుండి డేటా రీడ్ చేయడానికి
+def load_data_from_github():
+    data_path = 'data' # నీ GitHub లోని ఫోల్డర్ పేరు
+    all_files = glob.glob(os.path.join(data_path, "*.csv"))
     
-    # మామా, CSV ఫైల్స్ ని డౌన్‌లోడ్ చేయడానికి వాడే కరెక్ట్ దారి ఇదే!
-    url = f"https://google.com{file_id.strip()}"
+    if not all_files:
+        st.error("Maama, 'data' folder lo CSV files emi dorakaledu! GitHub lo upload chesavo ledo chudu.")
+        return pd.DataFrame()
     
-    try:
-        response = requests.get(url)
-        if response.status_code == 200:
-            # CSV కాబట్టి read_csv వాడుతున్నాను
-            return pd.read_csv(io.BytesIO(response.content))
-        else:
-            st.error(f"Download Error (ID: {file_id}): Drive file access 'Anyone with the link' లో ఉందో లేదో చూడు మామా!")
-    except Exception as e:
-        st.error(f"Fetch Error: {e}")
-    return None
+    df_list = []
+    progress_bar = st.progress(0)
+    total_files = len(all_files)
+    
+    for i, filename in enumerate(all_files):
+        # Progress update
+        progress_bar.progress((i + 1) / total_files)
+        # Reading CSV
+        df = pd.read_csv(filename)
+        df_list.append(df)
+        
+    combined_df = pd.concat(df_list, ignore_index=True)
+    return combined_df
 
 # --- SIDEBAR: DATA MANAGEMENT ---
 with st.sidebar:
     st.header("📂 Data Management")
+    st.subheader("📅 GitHub Repository Sync")
     
-    # ఇక్కడ నీ CSV ఫైల్ ఐడిలు ఉన్నాయి
-    FIXED_KPI_IDS = [
-        "1wvh8AAWhuj_ZDkiHKhIKU0YiFtf8CoJS",
-        "1o1a7QX47BGUlwZ1Vm6DrDhM1Uh62wVPB",
-        "10KzzznYIUHitWMSEnKG2KoQnySkoPnQG",
-        "136xNGW0_EghLz8sGw8AGJPVnp5y9rR0L"
-    ]
-
-    st.subheader("📅 KPI Auto-Sync")
-    if st.button("🔄 Sync Fixed 4-Day KPI"):
-        all_dfs = []
-        with st.spinner("CSV ఫైల్స్ క్లౌడ్ నుండి తెస్తున్నాను..."):
-            for f_id in FIXED_KPI_IDS:
-                df = fetch_from_drive(f_id)
-                if df is not None:
-                    all_dfs.append(df)
-            if all_dfs:
-                combined = pd.concat(all_dfs, ignore_index=True)
-                # డేట్ కాలమ్ ఉంటే ఫార్మాట్ సెట్ చేద్దాం
-                if 'Date' in combined.columns:
-                    combined['Date'] = pd.to_datetime(combined['Date']).dt.date
-                st.session_state['master_kpi'] = combined.drop_duplicates()
-                st.success("CSV Data Loaded! 🚀")
+    if st.button("🔄 Sync All Data (1 Month)"):
+        with st.spinner("GitHub నుండి భారీ డేటాని లోడ్ చేస్తున్నాను... ఓపిక పట్టు మామా!"):
+            df = load_data_from_github()
+            if not df.empty:
+                # Date column handling
+                if 'Date' in df.columns:
+                    df['Date'] = pd.to_datetime(df['Date']).dt.date
+                st.session_state['master_kpi'] = df.drop_duplicates()
+                st.success(f"Loaded {len(st.session_state['master_kpi'])} records! 🚀")
 
     st.divider()
-    st.subheader("🚨 Recent Folder Alarms")
-    active_id = st.text_input("Active Alarm ID:")
-    fm_id = st.text_input("FM Report ID:")
-    vswr_id = st.text_input("VSWR Report ID:")
-
     if st.button("🗑️ Clear Dashboard"):
         st.session_state['master_kpi'] = pd.DataFrame()
         st.rerun()
@@ -79,75 +66,56 @@ with st.sidebar:
 # --- MAIN PAGE: SEARCH & FILTERS ---
 df_main = st.session_state['master_kpi']
 
-col_search, col_date = st.columns(2)
+if not df_main.empty:
+    col_search, col_date = st.columns(2)
 
-with col_search:
-    search_site = st.text_input("🔍 Search Site ID (e.g., AT2001)", "").strip().upper()
+    with col_search:
+        search_site = st.text_input("🔍 Search Site ID (e.g., AT2001)", "").strip().upper()
 
-with col_date:
-    if not df_main.empty:
+    with col_date:
         min_d = df_main['Date'].min()
         max_d = df_main['Date'].max()
         date_range = st.date_input("📅 Date Range Filter", [min_d, max_d])
-    else:
-        st.info("Sync data to enable Date Filter")
-        date_range = []
 
-# --- ANALYSIS SECTION ---
-if search_site and not df_main.empty:
-    mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
-    
-    if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-        mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
-    
-    site_data = df_main[mask].sort_values(by='Date')
+    # --- ANALYSIS SECTION ---
+    if search_site:
+        mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
+        
+        if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
+            mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
+        
+        site_data = df_main[mask].sort_values(by='Date')
 
-    if not site_data.empty:
-        st.subheader(f"📊 Traffic Analysis for {search_site}")
-        fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', 
-                     color='4G Cell Name', barmode='group', height=450, text_auto='.2f')
-        st.plotly_chart(fig, use_container_width=True)
+        if not site_data.empty:
+            st.subheader(f"📊 Traffic Analysis for {search_site}")
+            fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', 
+                         color='4G Cell Name', barmode='group', height=450, text_auto='.2f')
+            st.plotly_chart(fig, use_container_width=True)
 
-        st.divider()
-        col_kpi, col_alarm = st.columns(2)
-        with col_kpi:
+            st.divider()
             st.subheader("📉 RF KPI Parameters")
+            # Nuvvu adigina columns ikkada unnayi
             kpi_cols = ['Date', '4G Cell Name', 'CSSR', 'RRC Connection Success Rate(All) (%)', 'ERAB Drop Rate - PS (%)']
             available_cols = [c for c in kpi_cols if c in site_data.columns]
             st.dataframe(site_data[available_cols].sort_values(by='Date', ascending=False), use_container_width=True)
-            
-        with col_alarm:
-            st.subheader(f"⚠️ Recent Alarms")
-            alarm_results = []
-            for lbl, f_id in [("Active", active_id), ("FM", fm_id), ("VSWR", vswr_id)]:
-                if f_id:
-                    df_al = fetch_from_drive(f_id)
-                    if df_al is not None:
-                        res = df_al[df_al.astype(str).apply(lambda x: x.str.contains(search_site, case=False, na=False)).any(axis=1)].copy()
-                        if not res.empty:
-                            res['Source'] = lbl
-                            alarm_results.append(res)
-            if alarm_results:
-                st.dataframe(pd.concat(alarm_results, ignore_index=True), use_container_width=True)
-            else:
-                st.success("No active alarms found! ✅")
+        else:
+            st.warning("Site data dorakaledu maama!")
 
-# --- BOTTOM SECTION: OA TRACKER ---
-st.divider()
-st.markdown("### 🔍 Low Traffic Cell Tracker (OA Wise)")
-if not df_main.empty:
+    # --- OA TRACKER ---
+    st.divider()
+    st.markdown("### 🔍 Low Traffic Cell Tracker (OA Wise)")
     if 'OA' in df_main.columns:
         oa_list = sorted(df_main['OA'].dropna().unique())
-        selected_oa = st.selectbox("🎯 Filter by Operational Area (OA):", ["Select Area"] + oa_list)
+        selected_oa = st.selectbox("🎯 Operational Area (OA):", ["Select Area"] + oa_list)
         latest_date = df_main['Date'].max()
         df_latest = df_main[df_main['Date'] == latest_date]
         if selected_oa != "Select Area":
             df_filtered_oa = df_latest[df_latest['OA'] == selected_oa]
             low_cells = df_filtered_oa[df_filtered_oa['Data Volume - Total (GB)'] < 2.0]
             if not low_cells.empty:
-                st.warning(f"⚠️ {len(low_cells)} cells below 2GB on {latest_date}")
-                st.dataframe(low_cells[['Site Id', 'LOCATION', '4G Cell Name', 'Data Volume - Total (GB)']], use_container_width=True)
+                st.warning(f"⚠️ {len(low_cells)} cells below 2GB")
+                st.dataframe(low_cells[['Site Id', 'LOCATION', 'Data Volume - Total (GB)']], use_container_width=True)
             else:
                 st.success(f"✅ All cells in {selected_oa} are above 2GB.")
 else:
-    st.info("👈 Please click 'Sync Fixed 4-Day KPI' to enable Tracker.")
+    st.info("👈 ఎడమవైపు ఉన్న 'Sync' బటన్ నొక్కు మామా, GitHub లో ఉన్న 1 నెల డేటా అంతా ఇక్కడికి వచ్చేస్తుంది!")
