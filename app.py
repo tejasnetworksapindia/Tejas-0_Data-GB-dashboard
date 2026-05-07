@@ -31,7 +31,6 @@ if 'alarm_data' not in st.session_state: st.session_state['alarm_data'] = pd.Dat
 # Robust RCA Reasoning Logic
 def get_rca_reason(row, alarm_df, site_id):
     try:
-        # Checking Column Names safely
         avail = row.get('E-UTRAN Cell availability (%)', row.get('Cell Availability(%)', 100))
         if avail < 90: return "❌ Cell Down (Low Availability)"
         
@@ -49,13 +48,12 @@ def get_rca_reason(row, alarm_df, site_id):
 TARGET_COLS = ['Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 
                'RRC Connection Success Rate(All) (%)', 'E-UTRAN Cell availability (%)']
 
-# 4. Reverse Engineered Data Loading (Safe & Fast)
+# 4. Optimized Data Loading
 def load_data():
     k_files = glob.glob("data/*.parquet") + glob.glob("data/*.csv")
     a_files = glob.glob("alarms/*")
     k_list, a_list = [], []
     
-    # Process Alarms First for RCA Mapping
     for f in a_files:
         try:
             if f.endswith('.parquet'): df_a = pd.read_parquet(f)
@@ -66,18 +64,10 @@ def load_data():
         except: continue
     final_a = pd.concat(a_list, ignore_index=True) if a_list else pd.DataFrame()
 
-    # Process KPIs
     for f in k_files:
         try:
-            if f.endswith('.parquet'):
-                # Try pyarrow first, then fastparquet
-                try: df = pd.read_parquet(f, engine='pyarrow')
-                except: df = pd.read_parquet(f, engine='fastparquet')
-            else:
-                df = pd.read_csv(f)
-            
+            df = pd.read_parquet(f, engine='pyarrow') if f.endswith('.parquet') else pd.read_csv(f)
             df.columns = [c.strip() for c in df.columns]
-            
             if '4G Cell Name' in df.columns:
                 df['Cell ID'] = "Cell " + df['4G Cell Name'].astype(str).str[-1]
                 df['Band'] = df['4G Cell Name'].astype(str).str[:6]
@@ -87,15 +77,10 @@ def load_data():
     final_k = pd.concat(k_list, ignore_index=True) if k_list else pd.DataFrame()
     
     if not final_k.empty:
-        # Date and Numeric Formatting
         final_k['Date'] = pd.to_datetime(final_k['Date'], errors='coerce').dt.date
         final_k['Data Volume - Total (GB)'] = pd.to_numeric(final_k['Data Volume - Total (GB)'], errors='coerce').fillna(0)
-        
-        # Site Id normalization
         if 'Site Id' not in final_k.columns and 'Site ID' in final_k.columns:
             final_k.rename(columns={'Site ID': 'Site Id'}, inplace=True)
-            
-        # RCA Pre-Tagging
         final_k['RCA Reason'] = final_k.apply(lambda r: get_rca_reason(r, final_a, r.get('Site Id')), axis=1)
         
     return final_k, final_a
@@ -109,23 +94,19 @@ with st.sidebar:
             if not k.empty:
                 st.session_state['master_kpi'] = k.drop_duplicates()
                 st.session_state['alarm_data'] = a
-                st.success("Sync Complete! 🚀")
-            else: st.error("No Data Found! Check folders.")
-    if st.button("🗑️ Clear Cache"):
-        st.session_state.clear()
-        st.rerun()
+                st.success(f"Sync Done! ({len(k)} rows) 🚀")
+            else: st.error("No Data Found!")
 
 # --- MAIN DASHBOARD ---
 df_main = st.session_state['master_kpi']
 df_alarm = st.session_state['alarm_data']
 
 if not df_main.empty:
-    search_site = st.text_input("🔍 Search Site ID:").strip().upper()
+    search_site = st.text_input("🔍 Search Site ID (e.g., AT2001):").strip().upper()
     if search_site:
         site_data = df_main[df_main['Site Id'].astype(str).str.contains(search_site, na=False)].sort_values('Date', ascending=False)
         
         if not site_data.empty:
-            # 📊 GRAPH
             st.subheader(f"📊 Traffic Analysis: {search_site}")
             fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', color='Cell ID', facet_col='Band', 
                          barmode='group', height=400, text_auto='.1f')
@@ -142,9 +123,11 @@ if not df_main.empty:
                 low_traf = site_data[site_data['Data Volume - Total (GB)'] < 2.0]
                 if not low_traf.empty:
                     sel_c = st.selectbox("Analyze Cell:", low_traf['4G Cell Name'].unique())
-                    # Robust lookup
-                    reason = low_traf[low_traf['4G Cell Name'] == sel_c]['RCA Reason'].values[0]
-                    st.markdown(f'<div class="rca-box">📌 Diagnosis: {reason}</div>', unsafe_allow_html=True)
+                    # Safe logic to get RCA reason without crashing
+                    diag_row = low_traf[low_traf['4G Cell Name'] == sel_c]
+                    if not diag_row.empty:
+                        reason = diag_row['RCA Reason'].values[0]
+                        st.markdown(f'<div class="rca-box">📌 Diagnosis: {reason}</div>', unsafe_allow_html=True)
                     st.dataframe(low_traf[['Date', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], use_container_width=True, hide_index=True)
                 else: st.success("All cells performing healthy! ✅")
 
@@ -163,6 +146,5 @@ if not df_main.empty:
             oa_low = oa_df[(oa_df['Date'] == latest_d) & (oa_df['Data Volume - Total (GB)'] < 2.0)]
             if not oa_low.empty:
                 st.dataframe(oa_low[['Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], use_container_width=True, hide_index=True)
-            else: st.success(f"Area {sel_oa} is healthy! ✅")
 else:
-    st.info("👈 Sync data to begin.")
+    st.info("👈 Sync data from sidebar to begin.")
