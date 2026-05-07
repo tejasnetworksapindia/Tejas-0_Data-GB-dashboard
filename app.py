@@ -9,11 +9,11 @@ st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
 
 st.markdown("""
     <style>
-    /* 1. Header & Title Adjustments */
+    /* 1. Header & Title Adjustments - Spacing thagginchi tight ga chesam */
     .report-title { font-size:30px !important; font-weight: bold; color: #1E3A8A; margin-bottom: -15px; }
     h3 { margin-top: 10px !important; margin-bottom: 5px !important; color: #1E3A8A; font-size: 22px !important; font-weight: bold; }
     
-    /* 2. Tight Spacing to remove unnecessary gaps */
+    /* 2. Remove Unnecessary Gaps */
     .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
     .element-container { margin-bottom: 0.8rem !important; }
 
@@ -21,7 +21,7 @@ st.markdown("""
     thead tr th { background-color: #1E3A8A !important; color: white !important; font-size: 16px !important; }
     .stDataFrame { border: 1px solid #1E3A8A; border-radius: 5px; font-size: 16px !important; }
 
-    /* 4. Interactive RCA Box Styling (Light Blue Background) */
+    /* 4. Interactive RCA Diagnosis Box (Light Blue Background) */
     .rca-box { 
         background-color: #EBF5FB; 
         padding: 15px; 
@@ -44,19 +44,23 @@ if 'alarm_data' not in st.session_state: st.session_state['alarm_data'] = pd.Dat
 
 # Helper for RCA Reasoning Logic
 def get_rca_reason(row, alarm_df, site_id):
-    if row['Cell Availability(%)'] < 90: return "❌ Cell Down (Low Availability)"
-    # Check for active alarms for this specific site
-    site_alarms = alarm_df[alarm_df.astype(str).apply(lambda x: x.str.contains(site_id, case=False)).any(axis=1)] if not alarm_df.empty else pd.DataFrame()
-    if not site_alarms.empty: return "🚨 Active Hardware Alarms"
-    if row['RRC Connection Success Rate(%)'] < 85: return "📉 Poor Signaling (RRC Issue)"
-    if row['RRC Connection Max Users'] == 0: return "🚫 No Active Users"
-    return "⚠️ Low Footfall / Area Traffic"
+    try:
+        if row.get('Cell Availability(%)', 100) < 90: return "❌ Cell Down (Low Availability)"
+        
+        # Check for active alarms
+        site_alarms = alarm_df[alarm_df.astype(str).apply(lambda x: x.str.contains(str(site_id), case=False)).any(axis=1)] if not alarm_df.empty else pd.DataFrame()
+        if not site_alarms.empty: return "🚨 Active Hardware Alarms"
+        
+        if row.get('RRC Connection Success Rate(%)', 100) < 85: return "📉 Poor Signaling (RRC Issue)"
+        if row.get('RRC Connection Max Users', 1) == 0: return "🚫 No Active Users"
+        return "⚠️ Low Footfall / Area Traffic"
+    except: return "🔍 Analyzing..."
 
-# 3. Targeted Columns for Display
+# 3. Targeted Columns
 TARGET_RF_COLS = ['Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 
                   'RRC Connection Success Rate(%)', 'Cell Availability(%)', 'RRC Connection Max Users']
 
-# 4. Optimized Data Loading
+# 4. Data Loading
 def load_data():
     k_files = glob.glob("data/*.parquet") + glob.glob("data/*.csv")
     a_files = glob.glob("alarms/*")
@@ -81,9 +85,9 @@ def load_data():
     a_df = pd.concat(a_list, ignore_index=True) if a_list else pd.DataFrame()
     
     if not k_df.empty:
-        k_df['Date'] = pd.to_datetime(k_df['Date']).dt.date
-        # Pre-tag RCA for all low traffic cells
-        k_df['RCA Reason'] = k_df.apply(lambda r: get_rca_reason(r, a_df, r['Site Id']) if r['Data Volume - Total (GB)'] < 2.0 else "Healthy", axis=1)
+        k_df['Date'] = pd.to_datetime(k_df['Date'], errors='coerce').dt.date
+        # Pre-tag RCA Reasons
+        k_df['RCA Reason'] = k_df.apply(lambda r: get_rca_reason(r, a_df, r.get('Site Id', '')), axis=1)
         
     return k_df, a_df
 
@@ -107,7 +111,7 @@ df_alarm = st.session_state['alarm_data']
 if not df_main.empty:
     col_s, col_d = st.columns(2)
     with col_s:
-        search_site = st.text_input("🔍 Search Site ID (e.g., AT2001):").strip().upper()
+        search_site = st.text_input("🔍 Search Site ID:").strip().upper()
     with col_d:
         min_d, max_d = df_main['Date'].min(), df_main['Date'].max()
         dr = st.date_input("📅 Date Range Filter", [min_d, max_d])
@@ -141,10 +145,11 @@ if not df_main.empty:
                 low_traf = site_data[site_data['Data Volume - Total (GB)'] < 2.0]
                 if not low_traf.empty:
                     sel_c = st.selectbox("Analyze Cell:", low_traf['4G Cell Name'].unique())
-                    c_row = site_data[site_data['4G Cell Name'] == sel_c].iloc[0]
-                    
-                    # RCA INTERACTIVE BOX
-                    st.markdown(f'<div class="rca-box">📌 RCA Diagnosis: {c_row["RCA Reason"]}</div>', unsafe_allow_html=True)
+                    c_rows = site_data[site_data['4G Cell Name'] == sel_c]
+                    if not c_rows.empty:
+                        c_row = c_rows.iloc[0]
+                        # RCA INTERACTIVE BOX (Highlighted)
+                        st.markdown(f'<div class="rca-box">📌 RCA Diagnosis: {c_row["RCA Reason"]}</div>', unsafe_allow_html=True)
                     st.dataframe(low_traf[['Date', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], 
                                  use_container_width=True, hide_index=True)
                 else:
@@ -154,11 +159,11 @@ if not df_main.empty:
             show_cols = [c for c in TARGET_RF_COLS if c in site_data.columns]
             st.dataframe(site_data[show_cols], use_container_width=True, hide_index=True)
 
-    # --- OA WISE TRACKER WITH CLICK ANALYSIS ---
+    # --- OA WISE TRACKER ---
     st.divider()
     st.subheader("🎯 OA Wise Tracker (Bellow 2GB List)")
     if 'OA' in df_main.columns:
-        sel_oa = st.selectbox("🎯 Filter by Area (OA):", ["Select Area"] + sorted(df_main['OA'].dropna().unique()))
+        sel_oa = st.selectbox("🎯 Filter by OA:", ["Select Area"] + sorted(df_main['OA'].dropna().unique()))
         if sel_oa != "Select Area":
             oa_df = df_main[df_main['OA'] == sel_oa]
             latest_d = oa_df['Date'].max()
@@ -166,11 +171,11 @@ if not df_main.empty:
             
             if not oa_low.empty:
                 st.warning(f"Found {len(oa_low)} Problem Cells in {sel_oa}")
-                # Click to analyze logic in OA tracker
                 analyze_oa_cell = st.selectbox("👉 Click to Analyze OA Cell:", oa_low['4G Cell Name'].unique())
                 if analyze_oa_cell:
-                    oa_c_row = oa_low[oa_low['4G Cell Name'] == analyze_oa_cell].iloc[0]
-                    st.info(f"**RCA for {analyze_oa_cell}:** {oa_c_row['RCA Reason']}")
+                    oa_c_rows = oa_low[oa_low['4G Cell Name'] == analyze_oa_cell]
+                    if not oa_c_rows.empty:
+                        st.info(f"**RCA Diagnosis for {analyze_oa_cell}:** {oa_c_rows.iloc[0]['RCA Reason']}")
                 st.dataframe(oa_low[['Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], use_container_width=True, hide_index=True)
             else:
                 st.success(f"All cells in {sel_oa} are healthy! ✅")
