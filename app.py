@@ -4,66 +4,47 @@ import plotly.express as px
 import glob
 import os
 
-# 1. Page Configuration & Professional Styling
+# 1. Page Configuration
 st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
 
 st.markdown("""
     <style>
     .report-title { font-size:30px !important; font-weight: bold; color: #1E3A8A; margin-bottom: -15px; }
-    h3 { margin-top: 10px !important; margin-bottom: 5px !important; color: #1E3A8A; font-size: 20px !important; font-weight: bold; }
-    .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
     thead tr th { background-color: #1E3A8A !important; color: white !important; font-size: 16px !important; }
     .stDataFrame { border: 1px solid #1E3A8A; border-radius: 5px; font-size: 16px !important; }
-    .rca-box { 
-        background-color: #EBF5FB; padding: 15px; border-radius: 8px; 
-        border-left: 8px solid #1E3A8A; margin-bottom: 10px; color: #1E3A8A; font-weight: bold;
-    }
-    .stButton>button { width: 100%; border-radius: 5px; background-color: #1E3A8A; color: white; font-weight: bold; }
+    .rca-box { background-color: #EBF5FB; padding: 15px; border-radius: 8px; border-left: 8px solid #1E3A8A; color: #1E3A8A; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="report-title">📡 Tejas RAN Smart Performance & Historical Dashboard</p>', unsafe_allow_html=True)
 
-# 2. Session State Initialization
 if 'master_kpi' not in st.session_state: st.session_state['master_kpi'] = pd.DataFrame()
 if 'alarm_data' not in st.session_state: st.session_state['alarm_data'] = pd.DataFrame()
 
-# Robust RCA Reasoning Logic
+# Robust RCA Logic (Crash-Proof)
 def get_rca_reason(row, alarm_df, site_id):
     try:
         avail = row.get('E-UTRAN Cell availability (%)', row.get('Cell Availability(%)', 100))
         if avail < 90: return "❌ Cell Down (Low Availability)"
-        
         if not alarm_df.empty and site_id:
             site_alarms = alarm_df[alarm_df.astype(str).apply(lambda x: x.str.contains(str(site_id), case=False)).any(axis=1)]
             if not site_alarms.empty: return "🚨 Active Hardware Alarms"
-        
         rrc = row.get('RRC Connection Success Rate(All) (%)', row.get('RRC Connection Success Rate(%)', 100))
         if rrc < 85: return "📉 Poor Signaling (RRC Issue)"
-        
         return "⚠️ Low Footfall / Area Traffic"
     except: return "🔍 Analyzing..."
 
-# 3. Targeted Display Columns
-TARGET_COLS = ['Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 
-               'RRC Connection Success Rate(All) (%)', 'E-UTRAN Cell availability (%)']
-
-# 4. Optimized Data Loading
 def load_data():
     k_files = glob.glob("data/*.parquet") + glob.glob("data/*.csv")
     a_files = glob.glob("alarms/*")
     k_list, a_list = [], []
-    
     for f in a_files:
         try:
-            if f.endswith('.parquet'): df_a = pd.read_parquet(f)
-            elif f.endswith('.xlsx'): df_a = pd.read_excel(f)
-            else: df_a = pd.read_csv(f)
+            df_a = pd.read_parquet(f) if f.endswith('.parquet') else (pd.read_excel(f) if f.endswith('.xlsx') else pd.read_csv(f))
             df_a.columns = [c.strip() for c in df_a.columns]
             a_list.append(df_a)
         except: continue
     final_a = pd.concat(a_list, ignore_index=True) if a_list else pd.DataFrame()
-
     for f in k_files:
         try:
             df = pd.read_parquet(f, engine='pyarrow') if f.endswith('.parquet') else pd.read_csv(f)
@@ -73,78 +54,50 @@ def load_data():
                 df['Band'] = df['4G Cell Name'].astype(str).str[:6]
             k_list.append(df)
         except: continue
-    
     final_k = pd.concat(k_list, ignore_index=True) if k_list else pd.DataFrame()
-    
     if not final_k.empty:
         final_k['Date'] = pd.to_datetime(final_k['Date'], errors='coerce').dt.date
         final_k['Data Volume - Total (GB)'] = pd.to_numeric(final_k['Data Volume - Total (GB)'], errors='coerce').fillna(0)
-        if 'Site Id' not in final_k.columns and 'Site ID' in final_k.columns:
-            final_k.rename(columns={'Site ID': 'Site Id'}, inplace=True)
         final_k['RCA Reason'] = final_k.apply(lambda r: get_rca_reason(r, final_a, r.get('Site Id')), axis=1)
-        
     return final_k, final_a
 
-# --- SIDEBAR ---
 with st.sidebar:
     st.header("📂 Data Controls")
     if st.button("🔄 Sync All Smart Data"):
-        with st.spinner("Processing..."):
-            k, a = load_data()
-            if not k.empty:
-                st.session_state['master_kpi'] = k.drop_duplicates()
-                st.session_state['alarm_data'] = a
-                st.success(f"Sync Done! ({len(k)} rows) 🚀")
-            else: st.error("No Data Found!")
+        k, a = load_data()
+        if not k.empty:
+            st.session_state['master_kpi'] = k.drop_duplicates()
+            st.session_state['alarm_data'] = a
+            st.success("Sync Done! 🚀")
+        else: st.error("No Data Found!")
 
-# --- MAIN DASHBOARD ---
 df_main = st.session_state['master_kpi']
 df_alarm = st.session_state['alarm_data']
 
 if not df_main.empty:
-    search_site = st.text_input("🔍 Search Site ID (e.g., AT2001):").strip().upper()
+    search_site = st.text_input("🔍 Search Site ID:").strip().upper()
     if search_site:
         site_data = df_main[df_main['Site Id'].astype(str).str.contains(search_site, na=False)].sort_values('Date', ascending=False)
-        
         if not site_data.empty:
             st.subheader(f"📊 Traffic Analysis: {search_site}")
-            fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', color='Cell ID', facet_col='Band', 
-                         barmode='group', height=400, text_auto='.1f')
+            fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', color='Cell ID', facet_col='Band', barmode='group', height=400)
             st.plotly_chart(fig, use_container_width=True)
-
             col_l, col_r = st.columns(2)
             with col_l:
                 st.subheader("🚨 Site Status & Alarms")
                 s_alarms = df_alarm[df_alarm.astype(str).apply(lambda x: x.str.contains(search_site, case=False)).any(axis=1)] if not df_alarm.empty else pd.DataFrame()
                 st.dataframe(s_alarms, use_container_width=True, hide_index=True)
-
             with col_r:
                 st.subheader("📉 RCA Analysis (< 2GB)")
                 low_traf = site_data[site_data['Data Volume - Total (GB)'] < 2.0]
                 if not low_traf.empty:
                     sel_c = st.selectbox("Analyze Cell:", low_traf['4G Cell Name'].unique())
-                    # Safe logic to get RCA reason without crashing
-                    diag_row = low_traf[low_traf['4G Cell Name'] == sel_c]
-                    if not diag_row.empty:
-                        reason = diag_row['RCA Reason'].values[0]
-                        st.markdown(f'<div class="rca-box">📌 Diagnosis: {reason}</div>', unsafe_allow_html=True)
+                    # FIXED LOGIC: No iloc to avoid crash
+                    reason = low_traf[low_traf['4G Cell Name'] == sel_c]['RCA Reason'].values[0]
+                    st.markdown(f'<div class="rca-box">📌 Diagnosis: {reason}</div>', unsafe_allow_html=True)
                     st.dataframe(low_traf[['Date', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], use_container_width=True, hide_index=True)
-                else: st.success("All cells performing healthy! ✅")
-
-            st.subheader("📋 Key RF Records")
-            disp = [c for c in TARGET_COLS if c in site_data.columns]
-            st.dataframe(site_data[disp], use_container_width=True, hide_index=True)
-
-    # --- OA WISE TRACKER ---
-    st.divider()
-    st.subheader("🎯 OA Wise Tracker (Latest)")
-    if 'OA' in df_main.columns:
-        sel_oa = st.selectbox("Filter OA Area:", ["Select Area"] + sorted(df_main['OA'].dropna().unique()))
-        if sel_oa != "Select Area":
-            oa_df = df_main[df_main['OA'] == sel_oa]
-            latest_d = oa_df['Date'].max()
-            oa_low = oa_df[(oa_df['Date'] == latest_d) & (oa_df['Data Volume - Total (GB)'] < 2.0)]
-            if not oa_low.empty:
-                st.dataframe(oa_low[['Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], use_container_width=True, hide_index=True)
-else:
-    st.info("👈 Sync data from sidebar to begin.")
+                else: st.success("Healthy! ✅")
+            st.subheader("📋 Key Records")
+            disp = ['Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)']
+            st.dataframe(site_data[[c for c in disp if c in site_data.columns]], use_container_width=True, hide_index=True)
+else: st.info("👈 Sync data from sidebar.")
