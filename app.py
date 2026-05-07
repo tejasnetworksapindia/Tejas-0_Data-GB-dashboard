@@ -3,101 +3,101 @@ import pandas as pd
 import plotly.express as px
 import os
 import glob
-import io
 
-# 1. Webpage Configuration
+# 1. Webpage Configuration & Advanced Styling
 st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
 
-# Custom Styling (Nuvvu pampina style + Big Font tweak)
 st.markdown("""
     <style>
-    .report-title { font-size:32px !important; font-weight: bold; color: #1E3A8A; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #1E3A8A; color: white; }
-    .stDataFrame { border: 1px solid #1E3A8A; border-radius: 5px; font-size: 18px !important; }
-    /* Metric Card Look */
-    [data-testid="stMetricValue"] { font-size: 24px !important; }
+    /* 1. Header & Title Adjustments */
+    .report-title { font-size:30px !important; font-weight: bold; color: #1E3A8A; margin-bottom: -15px; }
+    h3 { margin-top: 10px !important; margin-bottom: 5px !important; color: #1E3A8A; font-size: 22px !important; font-weight: bold; }
+    
+    /* 2. Tight Spacing to remove unnecessary gaps */
+    .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
+    .element-container { margin-bottom: 0.8rem !important; }
+
+    /* 3. Dark Blue Table Headers & Big Fonts */
+    thead tr th { background-color: #1E3A8A !important; color: white !important; font-size: 16px !important; }
+    .stDataFrame { border: 1px solid #1E3A8A; border-radius: 5px; font-size: 16px !important; }
+
+    /* 4. Interactive RCA Box Styling (Light Blue Background) */
+    .rca-box { 
+        background-color: #EBF5FB; 
+        padding: 15px; 
+        border-radius: 8px; 
+        border-left: 8px solid #1E3A8A; 
+        margin-bottom: 10px;
+        color: #1E3A8A;
+        font-weight: bold;
+    }
+    
+    .stButton>button { width: 100%; border-radius: 5px; background-color: #1E3A8A; color: white; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="report-title">📡 Tejas RAN Smart Performance & Historical Dashboard</p>', unsafe_allow_html=True)
 
-# 2. Session State Storage
-if 'master_kpi' not in st.session_state:
-    st.session_state['master_kpi'] = pd.DataFrame()
-if 'alarm_data' not in st.session_state:
-    st.session_state['alarm_data'] = pd.DataFrame()
+# 2. Session State
+if 'master_kpi' not in st.session_state: st.session_state['master_kpi'] = pd.DataFrame()
+if 'alarm_data' not in st.session_state: st.session_state['alarm_data'] = pd.DataFrame()
 
-# 3. Targeted Columns for RF KPI Analysis
-TARGET_RF_COLS = [
-    'Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)',
-    'RRC Connection Success Rate(%)', 'Cell Availability(%)', 'RRC Connection Max Users'
-]
+# Helper for RCA Reasoning Logic
+def get_rca_reason(row, alarm_df, site_id):
+    if row['Cell Availability(%)'] < 90: return "❌ Cell Down (Low Availability)"
+    # Check for active alarms for this specific site
+    site_alarms = alarm_df[alarm_df.astype(str).apply(lambda x: x.str.contains(site_id, case=False)).any(axis=1)] if not alarm_df.empty else pd.DataFrame()
+    if not site_alarms.empty: return "🚨 Active Hardware Alarms"
+    if row['RRC Connection Success Rate(%)'] < 85: return "📉 Poor Signaling (RRC Issue)"
+    if row['RRC Connection Max Users'] == 0: return "🚫 No Active Users"
+    return "⚠️ Low Footfall / Area Traffic"
 
-# 4. Optimized Data Loading (CSV + Parquet Support)
-def load_kpi_data():
-    # Parquet and CSV files renditini ethukuthundi
-    files = glob.glob("data/*.parquet") + glob.glob("data/*.csv")
-    if not files: return pd.DataFrame()
-    df_list = []
-    for f in files:
+# 3. Targeted Columns for Display
+TARGET_RF_COLS = ['Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 
+                  'RRC Connection Success Rate(%)', 'Cell Availability(%)', 'RRC Connection Max Users']
+
+# 4. Optimized Data Loading
+def load_data():
+    k_files = glob.glob("data/*.parquet") + glob.glob("data/*.csv")
+    a_files = glob.glob("alarms/*")
+    k_list, a_list = [], []
+    
+    for f in k_files:
         try:
-            if f.endswith('.parquet'):
-                temp_df = pd.read_parquet(f, engine='pyarrow')
-            else:
-                temp_df = pd.read_csv(f)
-            
-            if '4G Cell Name' in temp_df.columns:
-                temp_df['Cell ID'] = "Cell " + temp_df['4G Cell Name'].astype(str).str[-1]
-                temp_df['Band'] = temp_df['4G Cell Name'].astype(str).str[:6]
-            df_list.append(temp_df)
-        except Exception as e:
-            st.warning(f"Error reading file {f}")
-    
-    if not df_list: return pd.DataFrame()
-    combined = pd.concat(df_list, ignore_index=True)
-    
-    vol_col = 'Data Volume - Total (GB)'
-    if vol_col in combined.columns:
-        combined[vol_col] = pd.to_numeric(combined[vol_col], errors='coerce').fillna(0)
-    return combined
-
-def load_alarm_data():
-    files = glob.glob("alarms/*.xlsx") + glob.glob("alarms/*.csv") + glob.glob("alarms/*.parquet")
-    if not files: return pd.DataFrame()
-    df_list = []
-    keywords = ['Critical', 'Major', 'Service Affecting', 'Outage', 'Down', 'VSWR', 'Link Down']
-    pattern = '|'.join(keywords)
-    
-    for f in files:
-        try:
-            if f.endswith('.parquet'): temp_df = pd.read_parquet(f)
-            elif f.endswith('.xlsx'): temp_df = pd.read_excel(f, engine='openpyxl')
-            else: temp_df = pd.read_csv(f)
-            
-            mask = temp_df.astype(str).apply(lambda x: x.str.contains(pattern, case=False)).any(axis=1)
-            df_list.append(temp_df[mask])
+            df = pd.read_parquet(f, engine='pyarrow') if f.endswith('.parquet') else pd.read_csv(f)
+            if '4G Cell Name' in df.columns:
+                df['Cell ID'] = "Cell " + df['4G Cell Name'].astype(str).str[-1]
+                df['Band'] = df['4G Cell Name'].astype(str).str[:6]
+            k_list.append(df)
         except: continue
-    return pd.concat(df_list, ignore_index=True) if df_list else pd.DataFrame()
+        
+    for f in a_files:
+        try:
+            df = pd.read_parquet(f) if f.endswith('.parquet') else (pd.read_excel(f) if f.endswith('.xlsx') else pd.read_csv(f))
+            a_list.append(df)
+        except: continue
+    
+    k_df = pd.concat(k_list, ignore_index=True) if k_list else pd.DataFrame()
+    a_df = pd.concat(a_list, ignore_index=True) if a_list else pd.DataFrame()
+    
+    if not k_df.empty:
+        k_df['Date'] = pd.to_datetime(k_df['Date']).dt.date
+        # Pre-tag RCA for all low traffic cells
+        k_df['RCA Reason'] = k_df.apply(lambda r: get_rca_reason(r, a_df, r['Site Id']) if r['Data Volume - Total (GB)'] < 2.0 else "Healthy", axis=1)
+        
+    return k_df, a_df
 
-# --- SIDEBAR: DATA SYNC MANAGEMENT ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("📂 Data Sync Center")
-    st.info("Files should be in 'data/' and 'alarms/' folders.")
-    
     if st.button("🔄 Sync All Smart Data"):
-        with st.spinner("Fetching and Filtering Cloud Data..."):
-            kpi_df = load_kpi_data()
-            if not kpi_df.empty:
-                if 'Date' in kpi_df.columns:
-                    kpi_df['Date'] = pd.to_datetime(kpi_df['Date']).dt.date
-                st.session_state['master_kpi'] = kpi_df.drop_duplicates()
-            st.session_state['alarm_data'] = load_alarm_data()
+        with st.spinner("Processing Cloud Data..."):
+            k, a = load_data()
+            st.session_state['master_kpi'] = k.drop_duplicates()
+            st.session_state['alarm_data'] = a
             st.success("Sync Complete! 🚀")
-
-    st.divider()
     if st.button("🗑️ Clear Cache"):
-        st.session_state['master_kpi'] = pd.DataFrame()
-        st.session_state['alarm_data'] = pd.DataFrame()
+        st.session_state.clear()
         st.rerun()
 
 # --- MAIN PAGE: SEARCH & ANALYSIS ---
@@ -107,24 +107,19 @@ df_alarm = st.session_state['alarm_data']
 if not df_main.empty:
     col_s, col_d = st.columns(2)
     with col_s:
-        search_site = st.text_input("🔍 Search Site ID (e.g., AT2001):", "").strip().upper()
+        search_site = st.text_input("🔍 Search Site ID (e.g., AT2001):").strip().upper()
     with col_d:
-        min_d = df_main['Date'].min()
-        max_d = df_main['Date'].max()
-        date_range = st.date_input("📅 Date Range Filter", [min_d, max_d])
+        min_d, max_d = df_main['Date'].min(), df_main['Date'].max()
+        dr = st.date_input("📅 Date Range Filter", [min_d, max_d])
 
     if search_site:
-        mask = (df_main['Site Id'].str.contains(search_site, case=False, na=False))
-        if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
-            mask &= (df_main['Date'] >= date_range[0]) & (df_main['Date'] <= date_range[1])
+        site_data = df_main[df_main['Site Id'].str.contains(search_site, na=False)].sort_values('Date', ascending=False)
         
-        site_data = df_main[mask].sort_values(by=['Date', 'Band', 'Cell ID'])
-
         if not site_data.empty:
-            # --- 📊 TRAFFIC GRAPH (AS PER YOUR UI) ---
+            # 📊 TRAFFIC GRAPH
             st.subheader(f"📊 Traffic Analysis for {search_site}")
-            fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', color='Cell ID', 
-                         facet_col='Band', barmode='group', height=500, text_auto='.1f',
+            fig = px.bar(site_data, x='Date', y='Data Volume - Total (GB)', color='Cell ID', facet_col='Band', 
+                         barmode='group', height=400, text_auto='.1f',
                          color_discrete_map={"Cell 0": "#1E3A8A", "Cell 1": "#3B82F6", "Cell 2": "#EF4444"})
             fig.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
             st.plotly_chart(fig, use_container_width=True)
@@ -132,57 +127,52 @@ if not df_main.empty:
             st.divider()
             col_l, col_r = st.columns(2)
             
-            # --- 🚨 RCA & ALARM SECTION (IMPROVED) ---
             with col_l:
                 st.subheader("🚨 Site Status & Alarms")
-                if not df_alarm.empty:
-                    site_alarms = df_alarm[df_alarm.astype(str).apply(lambda x: x.str.contains(search_site, case=False)).any(axis=1)]
-                    if not site_alarms.empty:
-                        st.error(f"Critical Issues Found!")
-                        st.dataframe(site_alarms, use_container_width=True)
-                    else:
-                        st.success("No active critical alarms! ✅")
+                site_alarms = df_alarm[df_alarm.astype(str).apply(lambda x: x.str.contains(search_site, case=False)).any(axis=1)] if not df_alarm.empty else pd.DataFrame()
+                if not site_alarms.empty:
+                    st.error("Critical Issues Found!")
+                    st.dataframe(site_alarms, use_container_width=True, hide_index=True)
                 else:
-                    st.info("No alarm data found.")
+                    st.success("No active critical alarms! ✅")
 
             with col_r:
                 st.subheader("📉 RCA: Low Traffic Analysis (< 2GB)")
                 low_traf = site_data[site_data['Data Volume - Total (GB)'] < 2.0]
                 if not low_traf.empty:
-                    sel_low_cell = st.selectbox("Analyze Cell Why Traffic is < 2GB:", low_traf['4G Cell Name'].unique())
-                    c_info = site_data[site_data['4G Cell Name'] == sel_low_cell].iloc[-1]
+                    sel_c = st.selectbox("Analyze Cell:", low_traf['4G Cell Name'].unique())
+                    c_row = site_data[site_data['4G Cell Name'] == sel_c].iloc[0]
                     
-                    # Logic-based Final Output
-                    if c_info.get('Cell Availability(%)', 100) < 90:
-                        st.error("RCA: Cell Down Time (Availability Issue)")
-                    elif c_info.get('RRC Connection Success Rate(%)', 100) < 85:
-                        st.warning("RCA: Signaling Failure (RRC Issue)")
-                    else:
-                        st.info("RCA: Healthy Cell - Low User Footfall")
-                    
-                    st.dataframe(low_traf[['Date', '4G Cell Name', 'Data Volume - Total (GB)']], use_container_width=True)
+                    # RCA INTERACTIVE BOX
+                    st.markdown(f'<div class="rca-box">📌 RCA Diagnosis: {c_row["RCA Reason"]}</div>', unsafe_allow_html=True)
+                    st.dataframe(low_traf[['Date', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], 
+                                 use_container_width=True, hide_index=True)
                 else:
                     st.success("All cells performing healthy! ✅")
-            
-            st.divider()
+
             st.subheader("📋 Key RF KPI Records")
-            # Showing only targeted columns as requested
             show_cols = [c for c in TARGET_RF_COLS if c in site_data.columns]
-            st.dataframe(site_data[show_cols], use_container_width=True)
-        else:
-            st.warning(f"No data found for Site: {search_site}")
+            st.dataframe(site_data[show_cols], use_container_width=True, hide_index=True)
 
-    # --- OA Wise Tracker ---
+    # --- OA WISE TRACKER WITH CLICK ANALYSIS ---
     st.divider()
-    st.markdown("### 🔍 OA Wise Tracker (Latest Status)")
+    st.subheader("🎯 OA Wise Tracker (Bellow 2GB List)")
     if 'OA' in df_main.columns:
-        oa_list = sorted(df_main['OA'].dropna().unique())
-        sel_oa = st.selectbox("🎯 Filter by OA:", ["Select Area"] + oa_list)
+        sel_oa = st.selectbox("🎯 Filter by Area (OA):", ["Select Area"] + sorted(df_main['OA'].dropna().unique()))
         if sel_oa != "Select Area":
-            df_oa = df_main[df_main['OA'] == sel_oa]
-            latest_d = df_oa['Date'].max()
-            low_cells = df_oa[(df_oa['Date'] == latest_d) & (df_oa['Data Volume - Total (GB)'] < 2.0)]
-            st.dataframe(low_cells[['Site Id', '4G Cell Name', 'Data Volume - Total (GB)']], use_container_width=True)
-
+            oa_df = df_main[df_main['OA'] == sel_oa]
+            latest_d = oa_df['Date'].max()
+            oa_low = oa_df[(oa_df['Date'] == latest_d) & (oa_df['Data Volume - Total (GB)'] < 2.0)]
+            
+            if not oa_low.empty:
+                st.warning(f"Found {len(oa_low)} Problem Cells in {sel_oa}")
+                # Click to analyze logic in OA tracker
+                analyze_oa_cell = st.selectbox("👉 Click to Analyze OA Cell:", oa_low['4G Cell Name'].unique())
+                if analyze_oa_cell:
+                    oa_c_row = oa_low[oa_low['4G Cell Name'] == analyze_oa_cell].iloc[0]
+                    st.info(f"**RCA for {analyze_oa_cell}:** {oa_c_row['RCA Reason']}")
+                st.dataframe(oa_low[['Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], use_container_width=True, hide_index=True)
+            else:
+                st.success(f"All cells in {sel_oa} are healthy! ✅")
 else:
-    st.info("👈 Please click 'Sync All Smart Data' in the sidebar to load files.")
+    st.info("👈 Please sync data from the sidebar.")
