@@ -4,24 +4,17 @@ import plotly.express as px
 import os
 import glob
 
-# 1. Webpage Configuration & Advanced Styling
+# 1. Webpage Configuration & Professional Styling
 st.set_page_config(layout="wide", page_title="Tejas Smart RAN Dashboard")
 
 st.markdown("""
     <style>
-    /* 1. Header & Title Adjustments - Spacing thagginchi tight ga chesam */
     .report-title { font-size:30px !important; font-weight: bold; color: #1E3A8A; margin-bottom: -15px; }
     h3 { margin-top: 10px !important; margin-bottom: 5px !important; color: #1E3A8A; font-size: 22px !important; font-weight: bold; }
-    
-    /* 2. Remove Unnecessary Gaps */
     .block-container { padding-top: 1.5rem !important; padding-bottom: 1rem !important; }
     .element-container { margin-bottom: 0.8rem !important; }
-
-    /* 3. Dark Blue Table Headers & Big Fonts */
     thead tr th { background-color: #1E3A8A !important; color: white !important; font-size: 16px !important; }
     .stDataFrame { border: 1px solid #1E3A8A; border-radius: 5px; font-size: 16px !important; }
-
-    /* 4. Interactive RCA Diagnosis Box (Light Blue Background) */
     .rca-box { 
         background-color: #EBF5FB; 
         padding: 15px; 
@@ -31,25 +24,25 @@ st.markdown("""
         color: #1E3A8A;
         font-weight: bold;
     }
-    
     .stButton>button { width: 100%; border-radius: 5px; background-color: #1E3A8A; color: white; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
 st.markdown('<p class="report-title">📡 Tejas RAN Smart Performance & Historical Dashboard</p>', unsafe_allow_html=True)
 
-# 2. Session State
+# 2. Session State Initialization
 if 'master_kpi' not in st.session_state: st.session_state['master_kpi'] = pd.DataFrame()
 if 'alarm_data' not in st.session_state: st.session_state['alarm_data'] = pd.DataFrame()
 
-# Helper for RCA Reasoning Logic
+# Helper for RCA Reasoning Logic (Fixed & Robust)
 def get_rca_reason(row, alarm_df, site_id):
     try:
         if row.get('Cell Availability(%)', 100) < 90: return "❌ Cell Down (Low Availability)"
         
-        # Check for active alarms
-        site_alarms = alarm_df[alarm_df.astype(str).apply(lambda x: x.str.contains(str(site_id), case=False)).any(axis=1)] if not alarm_df.empty else pd.DataFrame()
-        if not site_alarms.empty: return "🚨 Active Hardware Alarms"
+        # Check for active alarms for this site
+        if not alarm_df.empty:
+            site_alarms = alarm_df[alarm_df.astype(str).apply(lambda x: x.str.contains(str(site_id), case=False)).any(axis=1)]
+            if not site_alarms.empty: return "🚨 Active Hardware Alarms"
         
         if row.get('RRC Connection Success Rate(%)', 100) < 85: return "📉 Poor Signaling (RRC Issue)"
         if row.get('RRC Connection Max Users', 1) == 0: return "🚫 No Active Users"
@@ -60,7 +53,7 @@ def get_rca_reason(row, alarm_df, site_id):
 TARGET_RF_COLS = ['Date', 'Site Id', '4G Cell Name', 'Data Volume - Total (GB)', 
                   'RRC Connection Success Rate(%)', 'Cell Availability(%)', 'RRC Connection Max Users']
 
-# 4. Data Loading
+# 4. Data Loading Logic
 def load_data():
     k_files = glob.glob("data/*.parquet") + glob.glob("data/*.csv")
     a_files = glob.glob("alarms/*")
@@ -86,6 +79,8 @@ def load_data():
     
     if not k_df.empty:
         k_df['Date'] = pd.to_datetime(k_df['Date'], errors='coerce').dt.date
+        # Numeric safety for RCA
+        k_df['Data Volume - Total (GB)'] = pd.to_numeric(k_df['Data Volume - Total (GB)'], errors='coerce').fillna(0)
         # Pre-tag RCA Reasons
         k_df['RCA Reason'] = k_df.apply(lambda r: get_rca_reason(r, a_df, r.get('Site Id', '')), axis=1)
         
@@ -97,9 +92,12 @@ with st.sidebar:
     if st.button("🔄 Sync All Smart Data"):
         with st.spinner("Processing Cloud Data..."):
             k, a = load_data()
-            st.session_state['master_kpi'] = k.drop_duplicates()
-            st.session_state['alarm_data'] = a
-            st.success("Sync Complete! 🚀")
+            if not k.empty:
+                st.session_state['master_kpi'] = k.drop_duplicates()
+                st.session_state['alarm_data'] = a
+                st.success("Sync Complete! 🚀")
+            else:
+                st.error("No Data Found in Folders!")
     if st.button("🗑️ Clear Cache"):
         st.session_state.clear()
         st.rerun()
@@ -147,8 +145,8 @@ if not df_main.empty:
                     sel_c = st.selectbox("Analyze Cell:", low_traf['4G Cell Name'].unique())
                     c_rows = site_data[site_data['4G Cell Name'] == sel_c]
                     if not c_rows.empty:
+                        # Fixed RCA Access logic
                         c_row = c_rows.iloc[0]
-                        # RCA INTERACTIVE BOX (Highlighted)
                         st.markdown(f'<div class="rca-box">📌 RCA Diagnosis: {c_row["RCA Reason"]}</div>', unsafe_allow_html=True)
                     st.dataframe(low_traf[['Date', '4G Cell Name', 'Data Volume - Total (GB)', 'RCA Reason']], 
                                  use_container_width=True, hide_index=True)
